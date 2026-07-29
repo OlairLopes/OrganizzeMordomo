@@ -1,0 +1,21 @@
+# Dados e segredos locais
+cofre_data.json
+cofre_data.json.*.bak
+.streamlit/secrets.toml
+
+# Backups locais / arquivos avulsos que não fazem parte do app
+files.zip
+OrganizzeMordomo
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
