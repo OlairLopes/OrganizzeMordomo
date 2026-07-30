@@ -14,6 +14,7 @@ da Anthropic como variável de ambiente ANTHROPIC_API_KEY, ou em
 
 import calendar
 import hmac
+import html
 import json
 import logging
 import os
@@ -131,6 +132,9 @@ st.markdown(f"""
     }}
     .stButton button[kind="secondary"] {{ background: {C['surface_soft']}; color: {C['ink']}; }}
     .stButton button[kind="secondary"]:hover {{ border-color: {C['line_strong']}; }}
+    /* O reset global de cor (p, span, label, div) acima também atinge o texto
+       interno dos botões do Streamlit; força a herdar a cor definida no botão. */
+    .stButton button p, .stButton button span, .stButton button div {{ color: inherit !important; }}
 
     /* --- Inputs --- */
     [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
@@ -152,6 +156,12 @@ st.markdown(f"""
     [data-testid="stProgress"] > div > div > div {{
         background: linear-gradient(90deg, {C['primary']}, {C['primary_bright']});
     }}
+
+    /* --- Diálogos (modais) --- */
+    div[role="dialog"] {{
+        background: {C['bg_soft']} !important; border: 1px solid {C['line']} !important;
+    }}
+    div[role="dialog"] button svg {{ color: {C['ink_soft']}; fill: {C['ink_soft']}; }}
 
     /* --- Chat --- */
     [data-testid="stChatMessage"] {{ background: {C['surface']}; border: 1px solid {C['line']}; border-radius: 14px; }}
@@ -313,14 +323,11 @@ def parse_date_flexible(raw):
     return s
 
 
-_MD_ESCAPE_RE = re.compile(r"([\\`*_\[\]()#!<>])")
-
-
-def md_escape(text):
-    """Escapa caracteres especiais de Markdown em texto vindo do usuário
-    (descrições, nomes de conta/categoria) antes de interpolar em st.write,
-    evitando que formatação ou imagens/links markdown sejam injetados."""
-    return _MD_ESCAPE_RE.sub(r"\\\1", str(text or ""))
+def esc_html(text):
+    """Escapa HTML em texto vindo do usuário (descrições, nomes de conta/
+    categoria) antes de interpolar em blocos st.markdown(unsafe_allow_html=True),
+    evitando a injeção de HTML/tags arbitrárias."""
+    return html.escape(str(text or ""))
 
 
 def decode_upload(raw_bytes):
@@ -347,6 +354,114 @@ def parse_ofx(text):
         memo = get("MEMO") or get("NAME") or "Lançamento importado"
         rows.append({"date": date_str, "description": memo, "amount": amount})
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Leitura de QR code de cupom fiscal (NFC-e)
+# ---------------------------------------------------------------------------
+NFCE_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def decode_qr_image(image_bytes):
+    """Decodifica o conteúdo de um QR code a partir dos bytes de uma imagem.
+    Retorna o texto decodificado (normalmente uma URL) ou None se nenhum QR
+    code for encontrado."""
+    import cv2
+    import numpy as np
+
+    arr = np.frombuffer(image_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+    detector = cv2.QRCodeDetector()
+    data, _points, _straight = detector.detectAndDecode(img)
+    return data or None
+
+
+def extract_chave_acesso(url):
+    """Extrai a chave de acesso (44 dígitos) de uma URL de QR code de NFC-e,
+    tanto no formato com parâmetros nomeados (chNFe=...) quanto no formato
+    compacto (?p=CHAVE|versao|ambiente|hash)."""
+    m = re.search(r"[?&](?:chNFe|chnfe)=(\d{44})", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]p=(\d{44})", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"(\d{44})", url)
+    return m.group(1) if m else None
+
+
+def _to_float_br(text):
+    m = re.search(r"[\d.,]+", text or "")
+    return parse_amount_br(m.group(0)) if m else None
+
+
+def fetch_nfce_receipt(url):
+    """Busca e interpreta a página de consulta pública da NFC-e (portal da
+    Sefaz do estado emissor) a partir da URL do QR code.
+
+    Vários estados usam um template compartilhado (tabela #tabResult com
+    spans .txtTit/.Rqtd/.RvlUnit por item, total em #linhaTotal, chave em
+    span.chave) — quando o portal do estado emissor segue esse padrão,
+    retornamos os itens um a um; caso contrário, tentamos ao menos obter o
+    valor total via busca textual. Retorna um dict com chaves 'items'
+    (lista, pode ser vazia), 'total' (float ou None) e 'date' (str ISO ou
+    None). Levanta exceção em caso de falha de rede."""
+    import requests
+    from bs4 import BeautifulSoup
+
+    resp = requests.get(
+        url, timeout=12,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; CofreApp/1.0)"},
+    )
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    items = []
+    table = soup.find("table", id="tabResult")
+    if table:
+        nomes = [s.get_text(strip=True) for s in table.select("span.txtTit")]
+        qtds = [s.get_text(strip=True) for s in table.select("span.Rqtd")]
+        valores_unit = [s.get_text(strip=True) for s in table.select("span.RvlUnit")]
+        for i, nome in enumerate(nomes):
+            qtd = _to_float_br(qtds[i]) if i < len(qtds) else None
+            v_unit = _to_float_br(valores_unit[i]) if i < len(valores_unit) else None
+            if not nome or v_unit is None:
+                continue
+            qtd = qtd or 1.0
+            items.append({
+                "description": nome,
+                "amount": round(qtd * v_unit, 2),
+            })
+
+    total = None
+    total_div = soup.find("div", id="linhaTotal")
+    if total_div:
+        total_span = total_div.find("span")
+        if total_span:
+            total = _to_float_br(total_span.get_text(strip=True))
+    if total is None:
+        m = re.search(r"Valor\s+a\s+pagar[^\d]{0,20}R?\$?\s*([\d.,]+)", resp.text, re.IGNORECASE)
+        if not m:
+            m = re.search(r"Valor\s+total[^\d]{0,20}R?\$?\s*([\d.,]+)", resp.text, re.IGNORECASE)
+        if m:
+            total = parse_amount_br(m.group(1))
+
+    date_iso = None
+    info_list = soup.find("ul", class_="ui-listview")
+    if info_list:
+        first_li = info_list.find("li")
+        if first_li:
+            m = re.search(r"(\d{2}/\d{2}/\d{4})", first_li.get_text())
+            if m:
+                date_iso = parse_date_flexible(m.group(1))
+    if date_iso is None:
+        m = re.search(r"(\d{2}/\d{2}/\d{4})\s+\d{2}:\d{2}:\d{2}", resp.text)
+        if m:
+            date_iso = parse_date_flexible(m.group(1))
+
+    return {"items": items, "total": total, "date": date_iso}
 
 
 # ---------------------------------------------------------------------------
@@ -676,6 +791,150 @@ def import_dialog():
             st.rerun()
 
 
+_QR_STATE_KEYS = ("_qr_url", "_qr_result", "_qr_error")
+
+
+@st.dialog("Ler QR code do cupom fiscal", width="large")
+def qrcode_dialog():
+    st.caption(
+        "Aponte a câmera para o QR code do cupom (NFC-e) ou envie uma foto. "
+        "Sempre que possível, importamos cada item da nota como uma despesa; "
+        "se o portal da Sefaz do seu estado não for compatível, importamos o valor total."
+    )
+    modo = st.radio("Captura", ["📷 Câmera", "🖼️ Enviar imagem"], horizontal=True, label_visibility="collapsed")
+    image_bytes = None
+    if modo == "📷 Câmera":
+        foto = st.camera_input("Aponte para o QR code", label_visibility="collapsed")
+        if foto is not None:
+            image_bytes = foto.getvalue()
+    else:
+        up = st.file_uploader("Imagem do cupom", type=["png", "jpg", "jpeg"], label_visibility="collapsed")
+        if up is not None:
+            image_bytes = up.getvalue()
+
+    if image_bytes is None:
+        return
+
+    try:
+        url = decode_qr_image(image_bytes)
+    except Exception as e:
+        # Decodificação de imagem pode falhar de várias formas (arquivo
+        # corrompido, formato inesperado); qualquer falha aqui só impede a
+        # leitura do QR, não é motivo para quebrar o app.
+        logger.error("Falha ao decodificar QR code: %s", e)
+        st.error("Não foi possível processar essa imagem.")
+        return
+
+    if not url:
+        st.warning("Nenhum QR code encontrado na imagem. Tente novamente com mais foco/luz.")
+        return
+    if not NFCE_URL_RE.match(url):
+        st.error("O QR code lido não parece ser de um cupom fiscal (NFC-e).")
+        return
+
+    if st.session_state.get("_qr_url") != url:
+        st.session_state["_qr_url"] = url
+        st.session_state.pop("_qr_result", None)
+        st.session_state.pop("_qr_error", None)
+
+    if "_qr_result" not in st.session_state and "_qr_error" not in st.session_state:
+        with st.spinner("Consultando nota fiscal..."):
+            try:
+                st.session_state["_qr_result"] = fetch_nfce_receipt(url)
+            except Exception as e:
+                # Consulta a um portal público de terceiros (Sefaz estadual):
+                # timeout, portal fora do ar ou HTML inesperado não devem
+                # derrubar o app — caem no fallback manual abaixo.
+                logger.error("Falha ao consultar portal da NFC-e: %s", e)
+                st.session_state["_qr_error"] = str(e)
+
+    result = st.session_state.get("_qr_result")
+    acc_names = [a["name"] for a in accounts]
+    cat_names = ["Sem categoria"] + [c["name"] for c in categories if c["kind"] == "despesa"]
+
+    if result and result["items"]:
+        st.success(f"{len(result['items'])} item(ns) encontrados nesta nota.")
+        prev_df = pd.DataFrame(result["items"]).rename(columns={"description": "Descrição", "amount": "Valor"})
+        st.dataframe(prev_df, width="stretch", height=220)
+        st.caption(f"Total: {fmt(sum(i['amount'] for i in result['items']))}")
+        conta = st.selectbox("Conta", acc_names, key="_qr_conta")
+        categoria = st.selectbox("Categoria (aplicada a todos os itens)", cat_names, key="_qr_categoria")
+        if st.button(f"Importar {len(result['items'])} item(ns) como despesas", type="primary"):
+            acc_obj = next(a for a in accounts if a["name"] == conta)
+            cat_obj = next((c for c in categories if c["name"] == categoria), None) if categoria != "Sem categoria" else None
+            data_tx = result["date"] or today_iso()
+            for item in result["items"]:
+                transactions.append({
+                    "id": uid(),
+                    "date": data_tx,
+                    "description": item["description"],
+                    "amount": item["amount"],
+                    "type": "despesa",
+                    "categoryId": cat_obj["id"] if cat_obj else "",
+                    "accountId": acc_obj["id"],
+                })
+            persist()
+            for k in _QR_STATE_KEYS:
+                st.session_state.pop(k, None)
+            st.rerun()
+
+    elif result and result["total"] is not None:
+        st.info(
+            "Não foi possível obter os itens desta nota (o portal do seu estado não é "
+            "compatível), mas o valor total foi identificado."
+        )
+        st.metric("Valor total", fmt(result["total"]))
+        descricao = st.text_input("Descrição", value="Compra (cupom fiscal)", key="_qr_desc")
+        conta = st.selectbox("Conta", acc_names, key="_qr_conta")
+        categoria = st.selectbox("Categoria", cat_names, key="_qr_categoria")
+        if st.button("Importar despesa", type="primary"):
+            acc_obj = next(a for a in accounts if a["name"] == conta)
+            cat_obj = next((c for c in categories if c["name"] == categoria), None) if categoria != "Sem categoria" else None
+            transactions.append({
+                "id": uid(),
+                "date": result["date"] or today_iso(),
+                "description": descricao or "Compra (cupom fiscal)",
+                "amount": result["total"],
+                "type": "despesa",
+                "categoryId": cat_obj["id"] if cat_obj else "",
+                "accountId": acc_obj["id"],
+            })
+            persist()
+            for k in _QR_STATE_KEYS:
+                st.session_state.pop(k, None)
+            st.rerun()
+
+    else:
+        st.warning(
+            "Não consegui consultar essa nota automaticamente (portal fora do ar, "
+            "sem conexão ou QR code inválido). Preencha manualmente abaixo."
+        )
+        descricao = st.text_input("Descrição", value="Compra (cupom fiscal)", key="_qr_desc_manual")
+        valor = st.number_input("Valor (R$)", min_value=0.0, step=1.0, key="_qr_valor_manual")
+        data_manual = st.date_input("Data", value=date.today(), key="_qr_data_manual")
+        conta = st.selectbox("Conta", acc_names, key="_qr_conta_manual")
+        categoria = st.selectbox("Categoria", cat_names, key="_qr_categoria_manual")
+        if st.button("Adicionar despesa", type="primary"):
+            if valor <= 0:
+                st.warning("Informe um valor.")
+                return
+            acc_obj = next(a for a in accounts if a["name"] == conta)
+            cat_obj = next((c for c in categories if c["name"] == categoria), None) if categoria != "Sem categoria" else None
+            transactions.append({
+                "id": uid(),
+                "date": data_manual.isoformat(),
+                "description": descricao or "Compra (cupom fiscal)",
+                "amount": valor,
+                "type": "despesa",
+                "categoryId": cat_obj["id"] if cat_obj else "",
+                "accountId": acc_obj["id"],
+            })
+            persist()
+            for k in _QR_STATE_KEYS:
+                st.session_state.pop(k, None)
+            st.rerun()
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -813,7 +1072,7 @@ if tab == "Visão Geral":
                 <div style="display:flex; justify-content:space-between; margin-top:10px; margin-bottom:4px;">
                     <span style="color:{C['ink']}; font-weight:600; font-size:14px;">
                         <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{c['color']}; margin-right:6px;"></span>
-                        {md_escape(c['name'])}
+                        {esc_html(c['name'])}
                     </span>
                     <span class="cofre-mono" style="color:{C['ink_soft']}; font-size:13px;">{fmt(spent)} / {fmt(c['budget'])}</span>
                 </div>
@@ -838,8 +1097,8 @@ if tab == "Visão Geral":
             cols = st.columns([5, 2, 1, 1], vertical_alignment="center")
             cols[0].markdown(f'''
                 <div style="border-left:3px solid {dot}; padding-left:10px;">
-                    <div style="color:{C['ink']}; font-weight:600; font-size:14.5px;">{md_escape(t['description'])}</div>
-                    <div style="color:{C['muted']}; font-size:12.5px;">{t['date']} · {md_escape(cat['name']) if cat else 'Sem categoria'} · {md_escape(acc['name']) if acc else 'Sem conta'}</div>
+                    <div style="color:{C['ink']}; font-weight:600; font-size:14.5px;">{esc_html(t['description'])}</div>
+                    <div style="color:{C['muted']}; font-size:12.5px;">{t['date']} · {esc_html(cat['name']) if cat else 'Sem categoria'} · {esc_html(acc['name']) if acc else 'Sem conta'}</div>
                 </div>''', unsafe_allow_html=True)
             cols[1].markdown(f'<span class="cofre-mono" style="color:{color}; font-weight:600;">{sign}{fmt(t["amount"])}</span>', unsafe_allow_html=True)
             if cols[2].button("✏️", key=f"edit-recent-{t['id']}"):
@@ -853,8 +1112,11 @@ if tab == "Visão Geral":
 # Aba: Transações
 # ---------------------------------------------------------------------------
 elif tab == "Transações":
-    if st.button("⬆️ Importar extrato"):
+    imp1, imp2 = st.columns(2)
+    if imp1.button("⬆️ Importar extrato", width="stretch"):
         import_dialog()
+    if imp2.button("🧾 Ler QR code do cupom", width="stretch"):
+        qrcode_dialog()
 
     with st.container(border=True):
         f1, f2, f3 = st.columns([3, 2, 2])
@@ -887,8 +1149,8 @@ elif tab == "Transações":
             cols = st.columns([5, 2, 1, 1], vertical_alignment="center")
             cols[0].markdown(f'''
                 <div style="border-left:3px solid {dot}; padding-left:10px;">
-                    <div style="color:{C['ink']}; font-weight:600; font-size:14.5px;">{md_escape(t['description'])}</div>
-                    <div style="color:{C['muted']}; font-size:12.5px;">{t['date']} · {md_escape(cat['name']) if cat else 'Sem categoria'} · {md_escape(acc['name']) if acc else 'Sem conta'}</div>
+                    <div style="color:{C['ink']}; font-weight:600; font-size:14.5px;">{esc_html(t['description'])}</div>
+                    <div style="color:{C['muted']}; font-size:12.5px;">{t['date']} · {esc_html(cat['name']) if cat else 'Sem categoria'} · {esc_html(acc['name']) if acc else 'Sem conta'}</div>
                 </div>''', unsafe_allow_html=True)
             cols[1].markdown(f'<span class="cofre-mono" style="color:{color}; font-weight:600;">{sign}{fmt(t["amount"])}</span>', unsafe_allow_html=True)
             if cols[2].button("✏️", key=f"edit-tx-{t['id']}"):
@@ -916,7 +1178,7 @@ elif tab == "Contas":
                     <div style="width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center;
                         font-size:16px; background: {acc_color}22; border: 1px solid {acc_color}55;">{icon}</div>
                     <div>
-                        <div style="color:{C['ink']}; font-weight:700; font-size:15px;">{md_escape(a['name'])}</div>
+                        <div style="color:{C['ink']}; font-weight:700; font-size:15px;">{esc_html(a['name'])}</div>
                         <div style="color:{C['muted']}; font-size:12px;">{"Cartão de crédito" if a["type"] == "cartao" else "Conta"}</div>
                     </div>
                 </div>''', unsafe_allow_html=True)
@@ -946,7 +1208,7 @@ elif tab == "Categorias":
     def category_row(cols_parent, c, key_prefix):
         with cols_parent, st.container(border=True):
             cc1, cc2, cc3 = st.columns([5, 1, 1], vertical_alignment="center")
-            label = md_escape(c["name"]) + (f" · limite {fmt(c['budget'])}" if c.get("budget") else "")
+            label = esc_html(c["name"]) + (f" · limite {fmt(c['budget'])}" if c.get("budget") else "")
             cc1.markdown(f'''
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="width:10px; height:10px; border-radius:50%; background:{c['color']}; display:inline-block;"></span>

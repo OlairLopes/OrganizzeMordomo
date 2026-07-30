@@ -1,7 +1,16 @@
 # 💰 Cofre — Controle Financeiro Pessoal
 
 Painel financeiro pessoal em Python (Streamlit): contas, categorias, transações,
-importação de extrato (CSV/OFX) e um assistente de chat opcional via API da Anthropic.
+importação de extrato (CSV/OFX), leitura do QR code de cupons fiscais (NFC-e) e
+um assistente de chat opcional via API da Anthropic.
+
+### Leitura de QR code de cupom fiscal
+
+Na aba **Transações**, o botão "Ler QR code do cupom" permite fotografar (ou enviar
+uma imagem) do QR code de uma NFC-e. Sempre que o portal da Sefaz do estado emissor
+usar o layout compartilhado por vários estados, cada item da nota é importado como
+uma despesa separada; caso o portal não seja compatível ou esteja indisponível, o
+valor total (ou um formulário manual) é usado como alternativa.
 
 ## Rodando localmente
 
