@@ -12,21 +12,37 @@ da Anthropic como variável de ambiente ANTHROPIC_API_KEY, ou em
     ANTHROPIC_API_KEY = "sk-ant-..."
 """
 
-import calendar
 import hmac
 import html
-import json
 import logging
 import os
-import re
-import tempfile
-import uuid
 from datetime import date, datetime
 from io import StringIO
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
+from cofre_core import (
+    C,
+    CAT_COLORS,
+    MONTHS_PT,
+    NFCE_URL_RE,
+    acc_by_id,
+    account_balance,
+    cat_by_id,
+    decode_upload,
+    fetch_nfce_receipt,
+    fmt,
+    load_data_core,
+    month_key,
+    parse_amount_br,
+    parse_date_flexible,
+    parse_ofx,
+    save_data_core,
+    today_iso,
+    uid,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cofre")
@@ -36,35 +52,8 @@ logger = logging.getLogger("cofre")
 # ---------------------------------------------------------------------------
 st.set_page_config(page_title="Cofre — Controle Financeiro", page_icon="💰", layout="wide")
 
-# Paleta "vault": fundo grafite-esverdeado escuro, esmeralda como cor de marca,
-# dourado como acento de destaque. Conjunto categórico validado com
-# scripts/validate_palette.js do skill de dataviz (CVD-safe em fundo escuro).
-C = {
-    "bg": "#0A0F0D",
-    "bg_soft": "#0D1512",
-    "surface": "#111A17",
-    "surface_soft": "#182420",
-    "ink": "#F4F7F5",
-    "ink_soft": "#B7C3BE",
-    "muted": "#7C8983",
-    "line": "rgba(255,255,255,0.08)",
-    "line_strong": "rgba(255,255,255,0.16)",
-    "primary": "#1EAE76",
-    "primary_bright": "#2BD696",
-    "gold": "#E8B84B",
-    "income": "#199E70",
-    "expense": "#E66767",
-    "warn": "#E8B84B",
-}
-
-CAT_COLORS = ["#3987E5", "#D95926", "#199E70", "#C98500", "#D55181", "#43C97A", "#9085E9", "#E66767"]
-# Cores antigas (paleta clara) -> novas, para recolorir dados já salvos sem quebrar identidade.
-LEGACY_COLOR_MAP = {
-    "#145C43": "#3987E5", "#B5482A": "#D95926", "#B8860B": "#199E70", "#4B6FA8": "#C98500",
-    "#7A4F9E": "#D55181", "#2F8F5B": "#43C97A", "#8A5A3C": "#9085E9", "#5C7A8A": "#E66767",
-}
-MONTHS_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho",
-             "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+# A paleta de cores (C, CAT_COLORS, MONTHS_PT) vem de cofre_core.theme,
+# compartilhada com o app mobile (Flet).
 
 st.markdown(f"""
 <style>
@@ -256,16 +245,6 @@ if not check_password():
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def fmt(n):
-    try:
-        n = float(n or 0)
-    except (TypeError, ValueError):
-        n = 0.0
-    neg = n < 0
-    s = f"R$ {abs(n):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"-{s}" if neg else s
-
-
 def stat_tile(col, label, value, icon="", accent=None, hint=None):
     """Renderiza um cartão de indicador (KPI) customizado dentro da coluna dada."""
     accent = accent or C["primary"]
@@ -282,47 +261,6 @@ def stat_tile(col, label, value, icon="", accent=None, hint=None):
     ''', unsafe_allow_html=True)
 
 
-def month_key(date_str):
-    return date_str[:7]
-
-
-def uid():
-    return uuid.uuid4().hex[:8]
-
-
-def today_iso():
-    return date.today().isoformat()
-
-
-def parse_amount_br(raw):
-    if isinstance(raw, (int, float)):
-        return float(raw)
-    s = str(raw or "").strip().replace("R$", "").replace(" ", "")
-    if not s:
-        return 0.0
-    if "," in s and "." in s:
-        s = s.replace(".", "").replace(",", ".")
-    elif "," in s:
-        s = s.replace(",", ".")
-    try:
-        return float(s)
-    except ValueError:
-        return 0.0
-
-
-def parse_date_flexible(raw):
-    s = str(raw or "").strip()
-    if re.match(r"^\d{4}-\d{2}-\d{2}", s):
-        return s[:10]
-    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2,4})", s)
-    if m:
-        dd, mo, yy = m.groups()
-        if len(yy) == 2:
-            yy = "20" + yy
-        return f"{yy}-{mo.zfill(2)}-{dd.zfill(2)}"
-    return s
-
-
 def esc_html(text):
     """Escapa HTML em texto vindo do usuário (descrições, nomes de conta/
     categoria) antes de interpolar em blocos st.markdown(unsafe_allow_html=True),
@@ -330,38 +268,9 @@ def esc_html(text):
     return html.escape(str(text or ""))
 
 
-def decode_upload(raw_bytes):
-    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
-        try:
-            return raw_bytes.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return raw_bytes.decode("utf-8", errors="replace")
-
-
-def parse_ofx(text):
-    blocks = re.findall(r"<STMTTRN>[\s\S]*?</STMTTRN>", text, re.IGNORECASE)
-    rows = []
-    for b in blocks:
-        def get(tag):
-            m = re.search(rf"<{tag}>([^<\r\n]+)", b, re.IGNORECASE)
-            return m.group(1).strip() if m else ""
-        dt_raw = get("DTPOSTED")
-        if not dt_raw:
-            continue
-        date_str = f"{dt_raw[0:4]}-{dt_raw[4:6]}-{dt_raw[6:8]}"
-        amount = parse_amount_br(get("TRNAMT"))
-        memo = get("MEMO") or get("NAME") or "Lançamento importado"
-        rows.append({"date": date_str, "description": memo, "amount": amount})
-    return rows
-
-
 # ---------------------------------------------------------------------------
 # Leitura de QR code de cupom fiscal (NFC-e)
 # ---------------------------------------------------------------------------
-NFCE_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
-
-
 def decode_qr_image(image_bytes):
     """Decodifica o conteúdo de um QR code a partir dos bytes de uma imagem.
     Retorna o texto decodificado (normalmente uma URL) ou None se nenhum QR
@@ -378,187 +287,22 @@ def decode_qr_image(image_bytes):
     return data or None
 
 
-def extract_chave_acesso(url):
-    """Extrai a chave de acesso (44 dígitos) de uma URL de QR code de NFC-e,
-    tanto no formato com parâmetros nomeados (chNFe=...) quanto no formato
-    compacto (?p=CHAVE|versao|ambiente|hash)."""
-    m = re.search(r"[?&](?:chNFe|chnfe)=(\d{44})", url)
-    if m:
-        return m.group(1)
-    m = re.search(r"[?&]p=(\d{44})", url)
-    if m:
-        return m.group(1)
-    m = re.search(r"(\d{44})", url)
-    return m.group(1) if m else None
-
-
-def _to_float_br(text):
-    m = re.search(r"[\d.,]+", text or "")
-    return parse_amount_br(m.group(0)) if m else None
-
-
-def fetch_nfce_receipt(url):
-    """Busca e interpreta a página de consulta pública da NFC-e (portal da
-    Sefaz do estado emissor) a partir da URL do QR code.
-
-    Vários estados usam um template compartilhado (tabela #tabResult com
-    spans .txtTit/.Rqtd/.RvlUnit por item, total em #linhaTotal, chave em
-    span.chave) — quando o portal do estado emissor segue esse padrão,
-    retornamos os itens um a um; caso contrário, tentamos ao menos obter o
-    valor total via busca textual. Retorna um dict com chaves 'items'
-    (lista, pode ser vazia), 'total' (float ou None) e 'date' (str ISO ou
-    None). Levanta exceção em caso de falha de rede."""
-    import requests
-    from bs4 import BeautifulSoup
-
-    resp = requests.get(
-        url, timeout=12,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; CofreApp/1.0)"},
-    )
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    items = []
-    table = soup.find("table", id="tabResult")
-    if table:
-        nomes = [s.get_text(strip=True) for s in table.select("span.txtTit")]
-        qtds = [s.get_text(strip=True) for s in table.select("span.Rqtd")]
-        valores_unit = [s.get_text(strip=True) for s in table.select("span.RvlUnit")]
-        for i, nome in enumerate(nomes):
-            qtd = _to_float_br(qtds[i]) if i < len(qtds) else None
-            v_unit = _to_float_br(valores_unit[i]) if i < len(valores_unit) else None
-            if not nome or v_unit is None:
-                continue
-            qtd = qtd or 1.0
-            items.append({
-                "description": nome,
-                "amount": round(qtd * v_unit, 2),
-            })
-
-    total = None
-    total_div = soup.find("div", id="linhaTotal")
-    if total_div:
-        total_span = total_div.find("span")
-        if total_span:
-            total = _to_float_br(total_span.get_text(strip=True))
-    if total is None:
-        m = re.search(r"Valor\s+a\s+pagar[^\d]{0,20}R?\$?\s*([\d.,]+)", resp.text, re.IGNORECASE)
-        if not m:
-            m = re.search(r"Valor\s+total[^\d]{0,20}R?\$?\s*([\d.,]+)", resp.text, re.IGNORECASE)
-        if m:
-            total = parse_amount_br(m.group(1))
-
-    date_iso = None
-    info_list = soup.find("ul", class_="ui-listview")
-    if info_list:
-        first_li = info_list.find("li")
-        if first_li:
-            m = re.search(r"(\d{2}/\d{2}/\d{4})", first_li.get_text())
-            if m:
-                date_iso = parse_date_flexible(m.group(1))
-    if date_iso is None:
-        m = re.search(r"(\d{2}/\d{2}/\d{4})\s+\d{2}:\d{2}:\d{2}", resp.text)
-        if m:
-            date_iso = parse_date_flexible(m.group(1))
-
-    return {"items": items, "total": total, "date": date_iso}
-
-
 # ---------------------------------------------------------------------------
-# Persistência local (arquivo JSON)
+# Persistência local (arquivo JSON) — a lógica de I/O pura mora em
+# cofre_core.storage; aqui só traduzimos o resultado para st.warning/st.error.
 # ---------------------------------------------------------------------------
-def seed_data():
-    today = date.today()
-
-    def d(day, offset_months=0):
-        m = today.month - 1 + offset_months
-        y = today.year + m // 12
-        m = m % 12 + 1
-        day = min(day, calendar.monthrange(y, m)[1])
-        return date(y, m, day).isoformat()
-
-    accounts = [
-        {"id": "acc-corrente", "name": "Conta Corrente", "type": "conta", "color": C["primary"]},
-        {"id": "acc-cartao", "name": "Cartão de Crédito", "type": "cartao", "limit": 3000, "color": C["expense"]},
-    ]
-    categories = [
-        {"id": "cat-salario", "name": "Salário", "kind": "receita", "color": CAT_COLORS[0]},
-        {"id": "cat-freelance", "name": "Freelance", "kind": "receita", "color": CAT_COLORS[3]},
-        {"id": "cat-moradia", "name": "Moradia", "kind": "despesa", "color": CAT_COLORS[1], "budget": 1200},
-        {"id": "cat-alimentacao", "name": "Alimentação", "kind": "despesa", "color": CAT_COLORS[2], "budget": 800},
-        {"id": "cat-transporte", "name": "Transporte", "kind": "despesa", "color": CAT_COLORS[4], "budget": 350},
-        {"id": "cat-lazer", "name": "Lazer", "kind": "despesa", "color": CAT_COLORS[5], "budget": 300},
-        {"id": "cat-assinaturas", "name": "Assinaturas", "kind": "despesa", "color": CAT_COLORS[6], "budget": 150},
-    ]
-    transactions = [
-        {"id": uid(), "date": d(5), "description": "Salário mensal", "amount": 4200, "type": "receita", "categoryId": "cat-salario", "accountId": "acc-corrente"},
-        {"id": uid(), "date": d(2, -1), "description": "Salário mensal", "amount": 4200, "type": "receita", "categoryId": "cat-salario", "accountId": "acc-corrente"},
-        {"id": uid(), "date": d(10), "description": "Projeto extra", "amount": 650, "type": "receita", "categoryId": "cat-freelance", "accountId": "acc-corrente"},
-        {"id": uid(), "date": d(6), "description": "Aluguel", "amount": 1100, "type": "despesa", "categoryId": "cat-moradia", "accountId": "acc-corrente"},
-        {"id": uid(), "date": d(6, -1), "description": "Aluguel", "amount": 1100, "type": "despesa", "categoryId": "cat-moradia", "accountId": "acc-corrente"},
-        {"id": uid(), "date": d(8), "description": "Supermercado", "amount": 380, "type": "despesa", "categoryId": "cat-alimentacao", "accountId": "acc-cartao"},
-        {"id": uid(), "date": d(14), "description": "Restaurante", "amount": 120, "type": "despesa", "categoryId": "cat-alimentacao", "accountId": "acc-cartao"},
-        {"id": uid(), "date": d(3), "description": "Combustível", "amount": 220, "type": "despesa", "categoryId": "cat-transporte", "accountId": "acc-cartao"},
-        {"id": uid(), "date": d(18), "description": "Cinema", "amount": 90, "type": "despesa", "categoryId": "cat-lazer", "accountId": "acc-cartao"},
-        {"id": uid(), "date": d(1), "description": "Streaming", "amount": 55, "type": "despesa", "categoryId": "cat-assinaturas", "accountId": "acc-cartao"},
-        {"id": uid(), "date": d(5, -2), "description": "Salário mensal", "amount": 4100, "type": "receita", "categoryId": "cat-salario", "accountId": "acc-corrente"},
-        {"id": uid(), "date": d(9, -2), "description": "Supermercado", "amount": 410, "type": "despesa", "categoryId": "cat-alimentacao", "accountId": "acc-cartao"},
-        {"id": uid(), "date": d(20, -3), "description": "Salário mensal", "amount": 4100, "type": "receita", "categoryId": "cat-salario", "accountId": "acc-corrente"},
-        {"id": uid(), "date": d(11, -3), "description": "Manutenção do carro", "amount": 300, "type": "despesa", "categoryId": "cat-transporte", "accountId": "acc-cartao"},
-    ]
-    return {"accounts": accounts, "categories": categories, "transactions": transactions}
-
-
-def migrate_legacy_colors(data):
-    """Recolore contas/categorias salvas com a paleta antiga (clara) para a
-    paleta atual, preservando a mesma cor relativa por item."""
-    changed = False
-    for item in data.get("accounts", []) + data.get("categories", []):
-        new_color = LEGACY_COLOR_MAP.get(str(item.get("color", "")).upper())
-        if new_color:
-            item["color"] = new_color
-            changed = True
-    return changed
-
-
 def load_data():
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if migrate_legacy_colors(data):
-                save_data(data)
-            return data
-        except (json.JSONDecodeError, OSError) as e:
-            logger.error("cofre_data.json corrompido, fazendo backup e recriando: %s", e)
-            backup = f"{DATA_FILE}.corrupted-{datetime.now():%Y%m%d%H%M%S}.bak"
-            try:
-                os.replace(DATA_FILE, backup)
-            except OSError:
-                pass
-            st.warning(
-                f"Não foi possível ler {DATA_FILE} (arquivo corrompido). "
-                f"Uma cópia foi salva em {backup} e novos dados de exemplo foram criados."
-            )
-    data = seed_data()
-    save_data(data)
-    return data
+    result = load_data_core(DATA_FILE)
+    if result.warning:
+        st.warning(result.warning)
+    return result.data
 
 
 def save_data(data):
-    """Escrita atômica: grava em arquivo temporário e substitui o original,
-    evitando corromper cofre_data.json se o processo for interrompido no meio da escrita."""
-    directory = os.path.dirname(os.path.abspath(DATA_FILE)) or "."
-    fd, tmp_path = tempfile.mkstemp(prefix=".cofre_data-", suffix=".tmp", dir=directory)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, DATA_FILE)
+        save_data_core(DATA_FILE, data)
     except OSError as e:
-        logger.error("Falha ao salvar %s: %s", DATA_FILE, e)
         st.error(f"Não foi possível salvar os dados ({e}). Suas últimas alterações podem não ter sido gravadas.")
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
 
 if "data" not in st.session_state:
@@ -574,22 +318,6 @@ transactions = data["transactions"]
 
 def persist():
     save_data(st.session_state.data)
-
-
-def cat_by_id(cid):
-    return next((c for c in categories if c["id"] == cid), None)
-
-
-def acc_by_id(aid):
-    return next((a for a in accounts if a["id"] == aid), None)
-
-
-def account_balance(acc_id):
-    total = 0.0
-    for t in transactions:
-        if t["accountId"] == acc_id:
-            total += t["amount"] if t["type"] == "receita" else -t["amount"]
-    return total
 
 
 # ---------------------------------------------------------------------------
@@ -1022,7 +750,7 @@ if tab == "Visão Geral":
         if exp_by_cat:
             rows = []
             for cid, val in exp_by_cat.items():
-                c = cat_by_id(cid)
+                c = cat_by_id(categories, cid)
                 rows.append({"categoria": c["name"] if c else "Sem categoria", "valor": val, "cor": c["color"] if c else C["muted"]})
             df_pie = pd.DataFrame(rows).sort_values("valor", ascending=False)
             fig = px.pie(df_pie, names="categoria", values="valor", hole=0.6,
@@ -1088,8 +816,8 @@ if tab == "Visão Geral":
         if not recent:
             st.caption("Nenhum lançamento neste mês ainda.")
         for t in recent:
-            cat = cat_by_id(t["categoryId"])
-            acc = acc_by_id(t["accountId"])
+            cat = cat_by_id(categories, t["categoryId"])
+            acc = acc_by_id(accounts, t["accountId"])
             is_income = t["type"] == "receita"
             color = C["income"] if is_income else C["expense"]
             sign = "+" if is_income else "-"
@@ -1140,8 +868,8 @@ elif tab == "Transações":
         if not filtered:
             st.caption("Nenhum lançamento encontrado.")
         for t in filtered:
-            cat = cat_by_id(t["categoryId"])
-            acc = acc_by_id(t["accountId"])
+            cat = cat_by_id(categories, t["categoryId"])
+            acc = acc_by_id(accounts, t["accountId"])
             is_income = t["type"] == "receita"
             color = C["income"] if is_income else C["expense"]
             sign = "+" if is_income else "-"
@@ -1182,7 +910,7 @@ elif tab == "Contas":
                         <div style="color:{C['muted']}; font-size:12px;">{"Cartão de crédito" if a["type"] == "cartao" else "Conta"}</div>
                     </div>
                 </div>''', unsafe_allow_html=True)
-                bal = account_balance(a["id"])
+                bal = account_balance(transactions, a["id"])
                 color = C["expense"] if bal < 0 else C["ink"]
                 st.markdown(f'<span class="cofre-mono" style="font-size:24px; font-weight:600; color:{color}">{fmt(bal)}</span>', unsafe_allow_html=True)
                 if a["type"] == "cartao" and a.get("limit"):
@@ -1259,16 +987,16 @@ elif tab == "Assistente":
                 client = anthropic.Anthropic(api_key=api_key)
 
                 def cat_name(cid):
-                    c = cat_by_id(cid)
+                    c = cat_by_id(categories, cid)
                     return c["name"] if c else "Sem categoria"
 
                 def acc_name(aid):
-                    a = acc_by_id(aid)
+                    a = acc_by_id(accounts, aid)
                     return a["name"] if a else "Sem conta"
 
                 recentes = sorted(transactions, key=lambda t: t["date"], reverse=True)[:120]
                 linhas = [f"{t['date']} | {t['type']} | {fmt(t['amount'])} | {cat_name(t['categoryId'])} | {acc_name(t['accountId'])} | {t['description']}" for t in recentes]
-                contas_str = "; ".join(f"{a['name']} (saldo {fmt(account_balance(a['id']))})" for a in accounts)
+                contas_str = "; ".join(f"{a['name']} (saldo {fmt(account_balance(transactions, a['id']))})" for a in accounts)
                 limites_str = "; ".join(f"{c['name']} (limite {fmt(c['budget'])})" for c in categories if c.get("budget")) or "nenhuma"
                 contexto = "\n".join([
                     f"Contas: {contas_str}",
