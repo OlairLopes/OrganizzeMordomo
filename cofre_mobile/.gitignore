@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environments / secrets
+.env
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Flet
+.flet/
+build/
+storage/
+
+# Núcleo compartilhado copiado de ../cofre_core (ver sync_core.py) — a fonte
+# de verdade fica em ../cofre_core, não versionamos a cópia duplicada aqui.
+src/cofre_core/
+
+# IDE
+.idea/
+.vscode/

@@ -1,0 +1,29 @@
+[project]
+name = "cofre-mobile"
+version = "0.1.0"
+description = "Cofre — Controle Financeiro Pessoal (app nativo Android/iOS via Flet)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Olair Lopes" }
+]
+dependencies = [
+    "flet>=0.86.4",
+    "flet-charts>=0.86.4",
+]
+
+[dependency-groups]
+dev = [
+    "flet-cli>=0.86.4",
+    "flet-desktop>=0.86.4",
+    "flet-web>=0.86.4",
+]
+
+[tool.flet]
+org = "com.olairlopes"
+product = "Cofre"
+company = "Olair Lopes"
+copyright = "Copyright (C) 2026 by Olair Lopes"
+
+[tool.flet.app]
+path = "src"
