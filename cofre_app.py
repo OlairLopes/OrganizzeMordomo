@@ -35,35 +35,161 @@ logger = logging.getLogger("cofre")
 # ---------------------------------------------------------------------------
 st.set_page_config(page_title="Cofre — Controle Financeiro", page_icon="💰", layout="wide")
 
+# Paleta "vault": fundo grafite-esverdeado escuro, esmeralda como cor de marca,
+# dourado como acento de destaque. Conjunto categórico validado com
+# scripts/validate_palette.js do skill de dataviz (CVD-safe em fundo escuro).
 C = {
-    "bg": "#F6F4EF",
-    "surface": "#FFFFFF",
-    "ink": "#1E2A24",
-    "ink_soft": "#4B5750",
-    "muted": "#8A948D",
-    "line": "#E4E0D6",
-    "primary": "#145C43",
-    "primary_soft": "#DCE9E2",
-    "income": "#2F8F5B",
-    "expense": "#B5482A",
-    "warn": "#B8860B",
+    "bg": "#0A0F0D",
+    "bg_soft": "#0D1512",
+    "surface": "#111A17",
+    "surface_soft": "#182420",
+    "ink": "#F4F7F5",
+    "ink_soft": "#B7C3BE",
+    "muted": "#7C8983",
+    "line": "rgba(255,255,255,0.08)",
+    "line_strong": "rgba(255,255,255,0.16)",
+    "primary": "#1EAE76",
+    "primary_bright": "#2BD696",
+    "gold": "#E8B84B",
+    "income": "#199E70",
+    "expense": "#E66767",
+    "warn": "#E8B84B",
 }
 
-CAT_COLORS = ["#145C43", "#B5482A", "#B8860B", "#4B6FA8", "#7A4F9E", "#2F8F5B", "#8A5A3C", "#5C7A8A"]
+CAT_COLORS = ["#3987E5", "#D95926", "#199E70", "#C98500", "#D55181", "#43C97A", "#9085E9", "#E66767"]
+# Cores antigas (paleta clara) -> novas, para recolorir dados já salvos sem quebrar identidade.
+LEGACY_COLOR_MAP = {
+    "#145C43": "#3987E5", "#B5482A": "#D95926", "#B8860B": "#199E70", "#4B6FA8": "#C98500",
+    "#7A4F9E": "#D55181", "#2F8F5B": "#43C97A", "#8A5A3C": "#9085E9", "#5C7A8A": "#E66767",
+}
 MONTHS_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho",
              "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
 st.markdown(f"""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
     html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
-    .cofre-title {{ font-family: 'Fraunces', serif; font-weight: 700; }}
-    .cofre-mono {{ font-family: 'IBM Plex Mono', monospace; }}
+    .cofre-title {{ font-family: 'Space Grotesk', sans-serif; font-weight: 700; letter-spacing: -0.01em; }}
+    .cofre-mono {{ font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }}
+
+    /* --- Base / fundo --- */
+    .stApp {{
+        background: radial-gradient(120% 140% at 12% -10%, #102A20 0%, {C['bg_soft']} 38%, {C['bg']} 70%);
+        color: {C['ink']};
+    }}
+    [data-testid="stHeader"] {{ background: transparent; }}
+    [data-testid="stAppViewContainer"] {{ color: {C['ink']}; }}
+    h1, h2, h3, h4, h5, h6 {{ font-family: 'Space Grotesk', sans-serif; color: {C['ink']}; letter-spacing: -0.01em; }}
+    p, span, label, div {{ color: {C['ink_soft']}; }}
+    hr {{ border-color: {C['line']}; }}
+
+    /* --- Sidebar --- */
+    [data-testid="stSidebar"] {{
+        background: linear-gradient(180deg, {C['bg_soft']} 0%, {C['bg']} 100%);
+        border-right: 1px solid {C['line']};
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] {{ gap: 4px; }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label {{
+        padding: 10px 14px; border-radius: 10px; transition: background .15s ease;
+        width: 100%;
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{ background: {C['surface_soft']}; }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"],
+    [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{
+        background: linear-gradient(90deg, rgba(30,174,118,0.22), rgba(30,174,118,0.04));
+        border-left: 2px solid {C['primary_bright']};
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label p {{
+        font-weight: 600; color: {C['ink']} !important; font-size: 0.95rem;
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none; }}
+
+    /* --- Cards / containers com borda --- */
+    div[data-testid="stVerticalBlockBorderWrapper"] {{
+        background: {C['surface']};
+        border: 1px solid {C['line']} !important;
+        border-radius: 16px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.24), 0 8px 24px -12px rgba(0,0,0,0.45);
+        transition: border-color .15s ease, transform .15s ease;
+    }}
+    div[data-testid="stVerticalBlockBorderWrapper"]:hover {{ border-color: {C['line_strong']} !important; }}
+
+    /* --- Botões --- */
+    .stButton button {{
+        border-radius: 10px; font-weight: 600; border: 1px solid {C['line']};
+        transition: all .15s ease;
+    }}
+    .stButton button[kind="primary"] {{
+        background: linear-gradient(135deg, {C['primary_bright']}, {C['primary']});
+        border: none; color: #062015;
+        box-shadow: 0 4px 16px -4px rgba(30,174,118,0.55);
+    }}
+    .stButton button[kind="primary"]:hover {{
+        box-shadow: 0 6px 22px -4px rgba(43,214,150,0.7);
+        transform: translateY(-1px);
+    }}
+    .stButton button[kind="secondary"] {{ background: {C['surface_soft']}; color: {C['ink']}; }}
+    .stButton button[kind="secondary"]:hover {{ border-color: {C['line_strong']}; }}
+
+    /* --- Inputs --- */
+    [data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
+    [data-testid="stDateInput"] input, .stSelectbox div[data-baseweb="select"] > div,
+    [data-testid="stTextArea"] textarea {{
+        background: {C['surface_soft']} !important; color: {C['ink']} !important;
+        border-radius: 10px !important; border: 1px solid {C['line']} !important;
+    }}
+
+    /* --- Métricas (fallback nativo) --- */
+    [data-testid="stMetric"] {{
+        background: {C['surface']}; border: 1px solid {C['line']}; border-radius: 16px; padding: 16px 18px;
+    }}
     [data-testid="stMetricValue"] {{ font-family: 'IBM Plex Mono', monospace; color: {C['ink']}; }}
-    .stApp {{ background-color: {C['bg']}; }}
-    div[data-testid="stVerticalBlockBorderWrapper"] {{ border-radius: 14px; }}
+    [data-testid="stMetricLabel"] {{ color: {C['muted']}; }}
+
+    /* --- Progresso --- */
+    [data-testid="stProgress"] > div > div {{ background: {C['surface_soft']}; }}
+    [data-testid="stProgress"] > div > div > div {{
+        background: linear-gradient(90deg, {C['primary']}, {C['primary_bright']});
+    }}
+
+    /* --- Chat --- */
+    [data-testid="stChatMessage"] {{ background: {C['surface']}; border: 1px solid {C['line']}; border-radius: 14px; }}
+    [data-testid="stBottom"] > div {{ background: transparent; }}
+    [data-testid="stBottomBlockContainer"] {{
+        background: linear-gradient(180deg, transparent, {C['bg']} 40%);
+    }}
+    [data-testid="stChatInput"] > div, [data-testid="stChatInput"] div[data-baseweb="base-input"] {{
+        background: transparent !important;
+    }}
+    [data-testid="stChatInput"] div[data-baseweb="textarea"] {{
+        background: {C['surface']} !important; border: 1px solid {C['line_strong']} !important; border-radius: 14px !important;
+    }}
+    [data-testid="stChatInputTextArea"] {{ background: transparent !important; color: {C['ink']} !important; }}
+    [data-testid="stChatInputTextArea"]::placeholder {{ color: {C['muted']} !important; }}
+    [data-testid="stChatInputSubmitButton"] {{ background: {C['primary']} !important; }}
+
+    /* --- DataFrame --- */
+    [data-testid="stDataFrame"] {{ border: 1px solid {C['line']}; border-radius: 12px; overflow: hidden; }}
+
+    ::-webkit-scrollbar {{ width: 10px; height: 10px; }}
+    ::-webkit-scrollbar-thumb {{ background: {C['surface_soft']}; border-radius: 8px; }}
 </style>
 """, unsafe_allow_html=True)
+
+
+def plotly_dark_layout(fig, height=280):
+    fig.update_layout(
+        height=height,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, sans-serif", color=C["ink_soft"], size=13),
+        margin=dict(t=10, b=10, l=10, r=10),
+        legend=dict(font=dict(color=C["ink_soft"])),
+    )
+    fig.update_xaxes(showgrid=False, color=C["muted"], linecolor=C["line"])
+    fig.update_yaxes(showgrid=True, gridcolor=C["line"], zeroline=False, color=C["muted"])
+    return fig
 
 DATA_FILE = "cofre_data.json"
 
@@ -90,18 +216,27 @@ def check_password():
     if st.session_state.get("_authenticated"):
         return True
 
-    st.markdown(
-        f'<div class="cofre-title" style="font-size:28px; color:{C["primary"]}">💰 Cofre</div>',
-        unsafe_allow_html=True,
-    )
-    st.caption("Controle financeiro pessoal — acesso restrito")
-    senha = st.text_input("Senha", type="password", key="_login_password")
-    if st.button("Entrar", type="primary"):
-        if hmac.compare_digest(senha, app_password):
-            st.session_state["_authenticated"] = True
-            st.rerun()
-        else:
-            st.error("Senha incorreta.")
+    _, mid, _ = st.columns([1, 1.3, 1])
+    with mid:
+        st.write("")
+        st.write("")
+        with st.container(border=True):
+            st.markdown(
+                f'''<div style="text-align:center; padding: 8px 0 4px;">
+                    <div style="font-size:40px;">🔐</div>
+                    <div class="cofre-title" style="font-size:30px; background: linear-gradient(135deg,{C["primary_bright"]},{C["gold"]});
+                        -webkit-background-clip:text; background-clip:text; color:transparent; margin-top:6px;">Cofre</div>
+                    <div style="color:{C["muted"]}; font-size:14px; margin-top:2px;">Controle financeiro pessoal — acesso restrito</div>
+                </div>''',
+                unsafe_allow_html=True,
+            )
+            senha = st.text_input("Senha", type="password", key="_login_password", label_visibility="collapsed", placeholder="Digite sua senha")
+            if st.button("Entrar", type="primary", width="stretch"):
+                if hmac.compare_digest(senha, app_password):
+                    st.session_state["_authenticated"] = True
+                    st.rerun()
+                else:
+                    st.error("Senha incorreta.")
     return False
 
 
@@ -119,6 +254,22 @@ def fmt(n):
     neg = n < 0
     s = f"R$ {abs(n):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"-{s}" if neg else s
+
+
+def stat_tile(col, label, value, icon="", accent=None, hint=None):
+    """Renderiza um cartão de indicador (KPI) customizado dentro da coluna dada."""
+    accent = accent or C["primary"]
+    hint_html = f'<div style="font-size:12.5px; color:{accent}; margin-top:6px; font-weight:600;">{hint}</div>' if hint else ""
+    col.markdown(f'''
+    <div style="background:{C['surface']}; border:1px solid {C['line']}; border-radius:16px; padding:18px 20px;
+        box-shadow: 0 1px 2px rgba(0,0,0,.24), 0 8px 24px -12px rgba(0,0,0,.45);">
+        <div style="display:flex; align-items:center; gap:8px; color:{C['muted']}; font-size:13px; font-weight:600; text-transform:uppercase; letter-spacing:.03em;">
+            <span style="font-size:15px;">{icon}</span>{label}
+        </div>
+        <div class="cofre-mono" style="font-size:26px; font-weight:600; color:{C['ink']}; margin-top:8px;">{value}</div>
+        {hint_html}
+    </div>
+    ''', unsafe_allow_html=True)
 
 
 def month_key(date_str):
@@ -212,8 +363,8 @@ def seed_data():
         return date(y, m, day).isoformat()
 
     accounts = [
-        {"id": "acc-corrente", "name": "Conta Corrente", "type": "conta", "color": "#145C43"},
-        {"id": "acc-cartao", "name": "Cartão de Crédito", "type": "cartao", "limit": 3000, "color": "#B5482A"},
+        {"id": "acc-corrente", "name": "Conta Corrente", "type": "conta", "color": C["primary"]},
+        {"id": "acc-cartao", "name": "Cartão de Crédito", "type": "cartao", "limit": 3000, "color": C["expense"]},
     ]
     categories = [
         {"id": "cat-salario", "name": "Salário", "kind": "receita", "color": CAT_COLORS[0]},
@@ -243,11 +394,26 @@ def seed_data():
     return {"accounts": accounts, "categories": categories, "transactions": transactions}
 
 
+def migrate_legacy_colors(data):
+    """Recolore contas/categorias salvas com a paleta antiga (clara) para a
+    paleta atual, preservando a mesma cor relativa por item."""
+    changed = False
+    for item in data.get("accounts", []) + data.get("categories", []):
+        new_color = LEGACY_COLOR_MAP.get(str(item.get("color", "")).upper())
+        if new_color:
+            item["color"] = new_color
+            changed = True
+    return changed
+
+
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+            if migrate_legacy_colors(data):
+                save_data(data)
+            return data
         except (json.JSONDecodeError, OSError) as e:
             logger.error("cofre_data.json corrompido, fazendo backup e recriando: %s", e)
             backup = f"{DATA_FILE}.corrupted-{datetime.now():%Y%m%d%H%M%S}.bak"
@@ -513,30 +679,61 @@ def import_dialog():
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
+TABS = {
+    "Visão Geral": ("📊", "Seu panorama financeiro do mês"),
+    "Transações": ("💸", "Todos os seus lançamentos, filtrados"),
+    "Contas": ("🏦", "Contas e cartões sob controle"),
+    "Categorias": ("🏷️", "Organize receitas e despesas"),
+    "Assistente": ("✨", "Converse sobre suas finanças"),
+}
+
 with st.sidebar:
-    st.markdown(f'<div class="cofre-title" style="font-size:22px; color:{C["primary"]}">💰 Cofre</div>', unsafe_allow_html=True)
-    st.caption("Controle financeiro pessoal")
+    st.markdown(f'''
+    <div style="display:flex; align-items:center; gap:10px; padding: 4px 2px 18px;">
+        <div style="width:38px; height:38px; border-radius:11px; display:flex; align-items:center; justify-content:center;
+            font-size:19px; background: linear-gradient(135deg, {C["primary_bright"]}, {C["primary"]}); box-shadow: 0 4px 14px -4px rgba(30,174,118,.6);">🔐</div>
+        <div>
+            <div class="cofre-title" style="font-size:20px; line-height:1.1; color:{C["ink"]};">Cofre</div>
+            <div style="font-size:11px; color:{C["muted"]}; letter-spacing:.04em; text-transform:uppercase;">Controle financeiro</div>
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
     tab = st.radio(
         "Navegação",
-        ["Visão Geral", "Transações", "Contas", "Categorias", "Assistente"],
+        list(TABS.keys()),
+        format_func=lambda t: f"{TABS[t][0]}  {t}",
         label_visibility="collapsed",
     )
     st.markdown("---")
-    st.caption("Seus dados ficam salvos localmente em `cofre_data.json`.")
+    st.caption("🔒 Seus dados ficam salvos localmente em `cofre_data.json`.")
 
 # ---------------------------------------------------------------------------
-# Top bar: navegação de mês + nova transação
+# Cabeçalho da página + barra de controle (mês / nova transação)
 # ---------------------------------------------------------------------------
-top1, top2, top3, top4 = st.columns([1, 3, 6, 2])
-if top1.button("◀"):
-    st.session_state.month_offset -= 1
-    st.rerun()
-top2.markdown(f'<div class="cofre-title" style="font-size:20px; text-align:center;">{month_label}</div>', unsafe_allow_html=True)
-if top2.button("▶"):
-    st.session_state.month_offset += 1
-    st.rerun()
-if top4.button("＋ Nova transação", type="primary", width="stretch"):
-    tx_dialog()
+icon, subtitle = TABS[tab]
+hl, hr = st.columns([3, 2])
+with hl:
+    st.markdown(
+        f'''<div style="display:flex; align-items:baseline; gap:10px;">
+            <span class="cofre-title" style="font-size:30px; color:{C["ink"]};">{icon} {tab}</span>
+        </div>
+        <div style="color:{C["muted"]}; font-size:14px; margin-top:2px;">{subtitle}</div>''',
+        unsafe_allow_html=True,
+    )
+with hr:
+    top1, top2, top3, top4 = st.columns([1, 3, 1, 4])
+    if top1.button("◀", key="_prev_month", width="stretch"):
+        st.session_state.month_offset -= 1
+        st.rerun()
+    top2.markdown(
+        f'<div class="cofre-mono" style="text-align:center; padding-top:8px; font-size:15px; color:{C["ink"]}; font-weight:600;">{month_label}</div>',
+        unsafe_allow_html=True,
+    )
+    if top3.button("▶", key="_next_month", width="stretch"):
+        st.session_state.month_offset += 1
+        st.rerun()
+    if top4.button("＋ Nova transação", type="primary", width="stretch"):
+        tx_dialog()
 
 st.write("")
 
@@ -544,14 +741,21 @@ st.write("")
 # Aba: Visão Geral
 # ---------------------------------------------------------------------------
 if tab == "Visão Geral":
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Saldo total", fmt(saldo_total))
-    c2.metric("Receitas do mês", fmt(income))
-    c3.metric("Despesas do mês", fmt(expense), delta=fmt(income - expense))
+    net = income - expense
+    c1, c2, c3, c4 = st.columns(4)
+    stat_tile(c1, "Saldo total", fmt(saldo_total), icon="🔐", accent=C["gold"])
+    stat_tile(c2, "Receitas do mês", fmt(income), icon="⬆️", accent=C["income"])
+    stat_tile(c3, "Despesas do mês", fmt(expense), icon="⬇️", accent=C["expense"])
+    stat_tile(
+        c4, "Resultado do mês", fmt(net), icon="✨",
+        accent=C["income"] if net >= 0 else C["expense"],
+        hint=("↑ positivo este mês" if net >= 0 else "↓ atenção: no vermelho"),
+    )
 
+    st.write("")
     col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown("##### Despesas por categoria")
+    with col_a, st.container(border=True):
+        st.markdown("###### 🥧 Despesas por categoria")
         exp_by_cat = {}
         for t in month_tx:
             if t["type"] == "despesa":
@@ -562,16 +766,17 @@ if tab == "Visão Geral":
                 c = cat_by_id(cid)
                 rows.append({"categoria": c["name"] if c else "Sem categoria", "valor": val, "cor": c["color"] if c else C["muted"]})
             df_pie = pd.DataFrame(rows).sort_values("valor", ascending=False)
-            fig = px.pie(df_pie, names="categoria", values="valor", hole=0.55,
+            fig = px.pie(df_pie, names="categoria", values="valor", hole=0.6,
                          color="categoria", color_discrete_map=dict(zip(df_pie["categoria"], df_pie["cor"])))
-            fig.update_traces(textinfo="percent+label")
-            fig.update_layout(showlegend=False, margin=dict(t=10, b=10, l=10, r=10), height=280)
+            fig.update_traces(textinfo="percent", textfont_color=C["ink"], marker=dict(line=dict(color=C["surface"], width=2)))
+            fig = plotly_dark_layout(fig, height=280)
+            fig.update_layout(showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.18, x=0, font=dict(size=11)))
             st.plotly_chart(fig, width="stretch")
         else:
             st.caption("Nenhuma despesa neste mês ainda.")
 
-    with col_b:
-        st.markdown("##### Receitas x despesas (6 meses)")
+    with col_b, st.container(border=True):
+        st.markdown("###### 📈 Receitas x despesas (6 meses)")
         trend_rows = []
         for i in range(5, -1, -1):
             mo = selected_date.month - 1 - i
@@ -587,34 +792,62 @@ if tab == "Visão Geral":
         df_trend = pd.DataFrame(trend_rows).melt(id_vars="mes", value_vars=["Receitas", "Despesas"], var_name="tipo", value_name="valor")
         fig2 = px.bar(df_trend, x="mes", y="valor", color="tipo", barmode="group",
                       color_discrete_map={"Receitas": C["income"], "Despesas": C["expense"]})
-        fig2.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=280, legend_title_text="")
+        fig2.update_traces(marker_line_width=0)
+        fig2 = plotly_dark_layout(fig2, height=280)
+        fig2.update_layout(
+            legend_title_text="", xaxis_title="", yaxis_title="",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        )
         st.plotly_chart(fig2, width="stretch")
 
     budget_cats = [c for c in categories if c["kind"] == "despesa" and c.get("budget")]
     if budget_cats:
-        st.markdown("##### Limites de gastos")
-        for c in budget_cats:
-            spent = sum(t["amount"] for t in month_tx if t["categoryId"] == c["id"])
-            pct = min(spent / c["budget"], 1.0)
-            st.write(f"**{c['name']}** — {fmt(spent)} / {fmt(c['budget'])}")
-            st.progress(pct)
+        st.write("")
+        with st.container(border=True):
+            st.markdown("###### 🎯 Limites de gastos")
+            for c in budget_cats:
+                spent = sum(t["amount"] for t in month_tx if t["categoryId"] == c["id"])
+                pct = min(spent / c["budget"], 1.0) if c["budget"] else 0.0
+                bar_color = C["expense"] if pct >= 1 else (C["gold"] if pct >= 0.8 else C["primary"])
+                st.markdown(f'''
+                <div style="display:flex; justify-content:space-between; margin-top:10px; margin-bottom:4px;">
+                    <span style="color:{C['ink']}; font-weight:600; font-size:14px;">
+                        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{c['color']}; margin-right:6px;"></span>
+                        {md_escape(c['name'])}
+                    </span>
+                    <span class="cofre-mono" style="color:{C['ink_soft']}; font-size:13px;">{fmt(spent)} / {fmt(c['budget'])}</span>
+                </div>
+                <div style="background:{C['surface_soft']}; border-radius:8px; height:8px; overflow:hidden;">
+                    <div style="width:{pct*100:.1f}%; height:100%; background:{bar_color}; border-radius:8px;"></div>
+                </div>
+                ''', unsafe_allow_html=True)
 
-    st.markdown("##### Últimos lançamentos")
-    recent = sorted(month_tx, key=lambda t: t["date"], reverse=True)[:6]
-    for t in recent:
-        cat = cat_by_id(t["categoryId"])
-        acc = acc_by_id(t["accountId"])
-        cols = st.columns([5, 2, 1, 1])
-        cols[0].write(f"**{md_escape(t['description'])}**  \n:gray[{t['date']} · {md_escape(cat['name']) if cat else 'Sem categoria'} · {md_escape(acc['name']) if acc else 'Sem conta'}]")
-        color = C["income"] if t["type"] == "receita" else C["expense"]
-        sign = "+" if t["type"] == "receita" else "-"
-        cols[1].markdown(f'<span class="cofre-mono" style="color:{color}">{sign}{fmt(t["amount"])}</span>', unsafe_allow_html=True)
-        if cols[2].button("✏️", key=f"edit-recent-{t['id']}"):
-            tx_dialog(t)
-        if cols[3].button("🗑️", key=f"del-recent-{t['id']}"):
-            transactions.remove(t)
-            persist()
-            st.rerun()
+    st.write("")
+    with st.container(border=True):
+        st.markdown("###### 🕒 Últimos lançamentos")
+        recent = sorted(month_tx, key=lambda t: t["date"], reverse=True)[:6]
+        if not recent:
+            st.caption("Nenhum lançamento neste mês ainda.")
+        for t in recent:
+            cat = cat_by_id(t["categoryId"])
+            acc = acc_by_id(t["accountId"])
+            is_income = t["type"] == "receita"
+            color = C["income"] if is_income else C["expense"]
+            sign = "+" if is_income else "-"
+            dot = cat["color"] if cat else C["muted"]
+            cols = st.columns([5, 2, 1, 1], vertical_alignment="center")
+            cols[0].markdown(f'''
+                <div style="border-left:3px solid {dot}; padding-left:10px;">
+                    <div style="color:{C['ink']}; font-weight:600; font-size:14.5px;">{md_escape(t['description'])}</div>
+                    <div style="color:{C['muted']}; font-size:12.5px;">{t['date']} · {md_escape(cat['name']) if cat else 'Sem categoria'} · {md_escape(acc['name']) if acc else 'Sem conta'}</div>
+                </div>''', unsafe_allow_html=True)
+            cols[1].markdown(f'<span class="cofre-mono" style="color:{color}; font-weight:600;">{sign}{fmt(t["amount"])}</span>', unsafe_allow_html=True)
+            if cols[2].button("✏️", key=f"edit-recent-{t['id']}"):
+                tx_dialog(t)
+            if cols[3].button("🗑️", key=f"del-recent-{t['id']}"):
+                transactions.remove(t)
+                persist()
+                st.rerun()
 
 # ---------------------------------------------------------------------------
 # Aba: Transações
@@ -623,10 +856,11 @@ elif tab == "Transações":
     if st.button("⬆️ Importar extrato"):
         import_dialog()
 
-    f1, f2, f3 = st.columns([3, 2, 2])
-    busca = f1.text_input("Buscar descrição...")
-    conta_f = f2.selectbox("Conta", ["Todas as contas"] + [a["name"] for a in accounts])
-    cat_f = f3.selectbox("Categoria", ["Todas as categorias"] + [c["name"] for c in categories])
+    with st.container(border=True):
+        f1, f2, f3 = st.columns([3, 2, 2])
+        busca = f1.text_input("Buscar descrição...", placeholder="🔎 Buscar descrição...", label_visibility="collapsed")
+        conta_f = f2.selectbox("Conta", ["Todas as contas"] + [a["name"] for a in accounts], label_visibility="collapsed")
+        cat_f = f3.selectbox("Categoria", ["Todas as categorias"] + [c["name"] for c in categories], label_visibility="collapsed")
 
     filtered = month_tx
     if busca:
@@ -639,41 +873,59 @@ elif tab == "Transações":
         filtered = [t for t in filtered if t["categoryId"] == cat_id]
     filtered = sorted(filtered, key=lambda t: t["date"], reverse=True)
 
-    if not filtered:
-        st.caption("Nenhum lançamento encontrado.")
-    for t in filtered:
-        cat = cat_by_id(t["categoryId"])
-        acc = acc_by_id(t["accountId"])
-        cols = st.columns([5, 2, 1, 1])
-        cols[0].write(f"**{md_escape(t['description'])}**  \n:gray[{t['date']} · {md_escape(cat['name']) if cat else 'Sem categoria'} · {md_escape(acc['name']) if acc else 'Sem conta'}]")
-        color = C["income"] if t["type"] == "receita" else C["expense"]
-        sign = "+" if t["type"] == "receita" else "-"
-        cols[1].markdown(f'<span class="cofre-mono" style="color:{color}">{sign}{fmt(t["amount"])}</span>', unsafe_allow_html=True)
-        if cols[2].button("✏️", key=f"edit-tx-{t['id']}"):
-            tx_dialog(t)
-        if cols[3].button("🗑️", key=f"del-tx-{t['id']}"):
-            transactions.remove(t)
-            persist()
-            st.rerun()
+    st.write("")
+    with st.container(border=True):
+        if not filtered:
+            st.caption("Nenhum lançamento encontrado.")
+        for t in filtered:
+            cat = cat_by_id(t["categoryId"])
+            acc = acc_by_id(t["accountId"])
+            is_income = t["type"] == "receita"
+            color = C["income"] if is_income else C["expense"]
+            sign = "+" if is_income else "-"
+            dot = cat["color"] if cat else C["muted"]
+            cols = st.columns([5, 2, 1, 1], vertical_alignment="center")
+            cols[0].markdown(f'''
+                <div style="border-left:3px solid {dot}; padding-left:10px;">
+                    <div style="color:{C['ink']}; font-weight:600; font-size:14.5px;">{md_escape(t['description'])}</div>
+                    <div style="color:{C['muted']}; font-size:12.5px;">{t['date']} · {md_escape(cat['name']) if cat else 'Sem categoria'} · {md_escape(acc['name']) if acc else 'Sem conta'}</div>
+                </div>''', unsafe_allow_html=True)
+            cols[1].markdown(f'<span class="cofre-mono" style="color:{color}; font-weight:600;">{sign}{fmt(t["amount"])}</span>', unsafe_allow_html=True)
+            if cols[2].button("✏️", key=f"edit-tx-{t['id']}"):
+                tx_dialog(t)
+            if cols[3].button("🗑️", key=f"del-tx-{t['id']}"):
+                transactions.remove(t)
+                persist()
+                st.rerun()
 
 # ---------------------------------------------------------------------------
 # Aba: Contas
 # ---------------------------------------------------------------------------
 elif tab == "Contas":
-    if st.button("＋ Nova conta"):
+    if st.button("＋ Nova conta", type="primary"):
         account_dialog()
+    st.write("")
     cols = st.columns(3)
     for i, a in enumerate(accounts):
         with cols[i % 3]:
             with st.container(border=True):
                 icon = "💳" if a["type"] == "cartao" else "🏦"
-                st.markdown(f"**{icon} {a['name']}**")
-                st.caption("Cartão de crédito" if a["type"] == "cartao" else "Conta")
+                acc_color = a.get("color") or C["primary"]
+                st.markdown(f'''
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+                    <div style="width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+                        font-size:16px; background: {acc_color}22; border: 1px solid {acc_color}55;">{icon}</div>
+                    <div>
+                        <div style="color:{C['ink']}; font-weight:700; font-size:15px;">{md_escape(a['name'])}</div>
+                        <div style="color:{C['muted']}; font-size:12px;">{"Cartão de crédito" if a["type"] == "cartao" else "Conta"}</div>
+                    </div>
+                </div>''', unsafe_allow_html=True)
                 bal = account_balance(a["id"])
                 color = C["expense"] if bal < 0 else C["ink"]
-                st.markdown(f'<span class="cofre-mono" style="font-size:22px; color:{color}">{fmt(bal)}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span class="cofre-mono" style="font-size:24px; font-weight:600; color:{color}">{fmt(bal)}</span>', unsafe_allow_html=True)
                 if a["type"] == "cartao" and a.get("limit"):
                     st.caption(f"Limite: {fmt(a['limit'])}")
+                st.write("")
                 b1, b2 = st.columns(2)
                 if b1.button("Editar", key=f"edit-acc-{a['id']}", width="stretch"):
                     account_dialog(a)
@@ -686,32 +938,35 @@ elif tab == "Contas":
 # Aba: Categorias
 # ---------------------------------------------------------------------------
 elif tab == "Categorias":
-    if st.button("＋ Nova categoria"):
+    if st.button("＋ Nova categoria", type="primary"):
         category_dialog()
+    st.write("")
     col1, col2 = st.columns(2)
+
+    def category_row(cols_parent, c, key_prefix):
+        with cols_parent, st.container(border=True):
+            cc1, cc2, cc3 = st.columns([5, 1, 1], vertical_alignment="center")
+            label = md_escape(c["name"]) + (f" · limite {fmt(c['budget'])}" if c.get("budget") else "")
+            cc1.markdown(f'''
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="width:10px; height:10px; border-radius:50%; background:{c['color']}; display:inline-block;"></span>
+                    <span style="color:{C['ink']}; font-weight:600; font-size:14.5px;">{label}</span>
+                </div>''', unsafe_allow_html=True)
+            if cc2.button("✏️", key=f"edit-{key_prefix}-{c['id']}"):
+                category_dialog(c)
+            if cc3.button("🗑️", key=f"del-{key_prefix}-{c['id']}"):
+                categories.remove(c)
+                persist()
+                st.rerun()
+
     with col1:
-        st.markdown(f"##### :green[Receitas]")
+        st.markdown(f'<h6 style="color:{C["income"]};">⬆️ Receitas</h6>', unsafe_allow_html=True)
         for c in [c for c in categories if c["kind"] == "receita"]:
-            cc1, cc2, cc3 = st.columns([5, 1, 1])
-            cc1.write(f"🟢 {c['name']}")
-            if cc2.button("✏️", key=f"edit-cat-{c['id']}"):
-                category_dialog(c)
-            if cc3.button("🗑️", key=f"del-cat-{c['id']}"):
-                categories.remove(c)
-                persist()
-                st.rerun()
+            category_row(col1, c, "cat")
     with col2:
-        st.markdown(f"##### :red[Despesas]")
+        st.markdown(f'<h6 style="color:{C["expense"]};">⬇️ Despesas</h6>', unsafe_allow_html=True)
         for c in [c for c in categories if c["kind"] == "despesa"]:
-            cc1, cc2, cc3 = st.columns([5, 1, 1])
-            label = f"🔴 {c['name']}" + (f" — limite {fmt(c['budget'])}" if c.get("budget") else "")
-            cc1.write(label)
-            if cc2.button("✏️", key=f"edit-cat2-{c['id']}"):
-                category_dialog(c)
-            if cc3.button("🗑️", key=f"del-cat2-{c['id']}"):
-                categories.remove(c)
-                persist()
-                st.rerun()
+            category_row(col2, c, "cat2")
 
 # ---------------------------------------------------------------------------
 # Aba: Assistente (chat com IA sobre os dados do usuário)
