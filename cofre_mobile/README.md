@@ -1,6 +1,6 @@
-# Cofre Mobile
+# Fiel Finance Mobile
 
-App nativo Android/iOS do Cofre, construído com [Flet](https://flet.dev)
+App nativo Android/iOS do Fiel Finance, construído com [Flet](https://flet.dev)
 (Python → Flutter). Reaproveita a lógica de negócio pura de `../cofre_core`
 (mesmo pacote usado pelo app Streamlit `cofre_app.py`).
 
@@ -32,11 +32,34 @@ python sync_core.py
 
 ```bash
 python sync_core.py
-flet build apk --yes --no-rich-output -v
+PYTHONUTF8=1 PYTHONIOENCODING=utf-8 flet build apk --yes --no-rich-output -v
 ```
 
 O primeiro build baixa o Flutter SDK + Android SDK/NDK automaticamente
-(pode demorar bastante). O APK fica em `build/apk/app-release.apk`.
+(pode demorar bastante). O APK fica em `build/apk/cofre-mobile.apk`.
+
+### Problemas conhecidos nesta máquina (projeto dentro do OneDrive)
+
+- **`PermissionError` / `OSError: Cannot call rmtree on a symbolic link`** durante
+  "Packaging Python app": o OneDrive converte pastas recém-criadas dentro de
+  `build/` em "cloud placeholders" (reparse points) quase em tempo real, e o
+  `flet build` não consegue apagá-las para recriar. Solução aplicada nesta
+  máquina: `cofre_mobile/build` é uma **junction** do NTFS apontando para
+  `C:\Users\olair\AppData\Local\cofre_mobile_build` (fora da árvore
+  sincronizada pelo OneDrive). Para recriar, caso a junction se perca:
+  ```powershell
+  $src = "cofre_mobile\build"; $dst = "C:\Users\olair\AppData\Local\cofre_mobile_build"
+  Move-Item $src $dst   # se `build` ainda existir como pasta normal
+  cmd /c mklink /J $src $dst
+  ```
+- **`UnicodeEncodeError` (cp1252)** ao rodar `flutter_launcher_icons` ou outras
+  ferramentas Dart que imprimem emoji/Unicode: o console legado do Windows não
+  suporta esses caracteres. Contornado definindo `PYTHONUTF8=1` e
+  `PYTHONIOENCODING=utf-8` antes do `flet build` (já incluído no comando acima).
+- Se um build travar/crashar no meio, pode sobrar um processo `dart.exe`
+  órfão segurando arquivos de `build/flutter` — mate-o (`Stop-Process`) antes
+  de tentar de novo, ou rode `flutter clean` dentro de `build/flutter` se o
+  próximo build falhar com `PathNotFoundException` em `app.so`.
 
 ## Build iOS
 
@@ -46,10 +69,21 @@ Apple Developer Program (US$99/ano) para assinatura. Veja
 `.github/workflows/ios-build.yml` (Fase 4) para rodar o build num runner
 macOS do GitHub Actions.
 
+## Fase 2 (concluída): QR code e importação de extrato
+
+- Leitura de QR code do cupom fiscal (NFC-e) via `flet_qrscanner` (extensão
+  Flet nativa que embrulha o `mobile_scanner` do Flutter), já que a
+  decodificação em Python usada no app desktop (`cv2`/`opencv`) não roda no
+  Python embarcado do Flet mobile. Reaproveita `cofre_core.nfce` e o mesmo
+  fallback de 3 níveis do desktop: itens da nota → valor total → formulário
+  manual. Requer a permissão `camera` (já declarada em `pyproject.toml`).
+- Importação de extrato CSV/OFX (`dialogs/import_dialog.py`), equivalente ao
+  do app desktop, mas usando `csv.DictReader` da stdlib em vez de pandas
+  (pandas é pesado demais para empacotar no celular).
+- `cofre_core` ganhou um fallback de import (`requests`/`beautifulsoup4`
+  opcionais) para continuar funcionando em ambientes sem essas libs.
+
 ## O que falta (próximas fases)
 
-- Fase 2: leitura de QR code do cupom fiscal (NFC-e) — via extensão Flet
-  nativa (`mobile_scanner`), não pela decodificação em Python usada no app
-  desktop (`cv2`/`opencv`, que não roda no Python embarcado do Flet mobile).
 - Fase 3: aba Assistente (chat com IA via API da Anthropic).
 - Fase 4: pipeline de build iOS via GitHub Actions.

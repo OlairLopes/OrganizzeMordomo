@@ -1,4 +1,4 @@
-# 💰 Cofre — Controle Financeiro Pessoal
+# 💰 Fiel Finance — Controle Financeiro Pessoal
 
 Painel financeiro pessoal em Python (Streamlit): contas, categorias, transações,
 importação de extrato (CSV/OFX), leitura do QR code de cupons fiscais (NFC-e) e
@@ -58,7 +58,7 @@ cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 ```bash
 git init                     # já feito, se você seguiu este guia
 git add .
-git commit -m "Cofre — controle financeiro pessoal"
+git commit -m "Fiel Finance — controle financeiro pessoal"
 git branch -M main
 git remote add origin https://github.com/<seu-usuario>/<seu-repo>.git
 git push -u origin main

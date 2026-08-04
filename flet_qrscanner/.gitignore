@@ -1,0 +1,21 @@
+# Build artifacts / packaging
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+/pubspec.lock
+
+# IDE
+.idea/
+.vscode/

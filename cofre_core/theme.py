@@ -1,4 +1,4 @@
-"""Paleta de cores e constantes de exibição do Cofre — apenas dados, sem
+"""Paleta de cores e constantes de exibição do Fiel Finance — apenas dados, sem
 nenhuma dependência de UI, compartilhados pelo app Streamlit (desktop/web) e
 pelo app Flet (mobile).
 """

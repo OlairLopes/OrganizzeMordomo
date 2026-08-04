@@ -1,4 +1,4 @@
-"""Tema escuro "vault" do Cofre para o app Flet, construído a partir da
+"""Tema escuro "vault" do Fiel Finance para o app Flet, construído a partir da
 mesma paleta usada no app Streamlit (cofre_core.theme.C)."""
 
 import flet as ft

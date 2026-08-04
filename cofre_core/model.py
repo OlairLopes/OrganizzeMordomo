@@ -1,4 +1,4 @@
-"""Modelo de dados do Cofre (contas, categorias, transações): dados de
+"""Modelo de dados do Fiel Finance (contas, categorias, transações): dados de
 exemplo, migração de paleta de cores e consultas simples sobre as coleções.
 Funções puras — recebem as coleções (`accounts`/`categories`/`transactions`)
 como parâmetro explícito, em vez de fechar sobre variáveis globais, para que

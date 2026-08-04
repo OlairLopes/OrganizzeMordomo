@@ -1,7 +1,7 @@
 [project]
 name = "cofre-mobile"
 version = "0.1.0"
-description = "Cofre — Controle Financeiro Pessoal (app nativo Android/iOS via Flet)"
+description = "Fiel Finance — Controle Financeiro Pessoal (app nativo Android/iOS via Flet)"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -10,6 +10,10 @@ authors = [
 dependencies = [
     "flet>=0.86.4",
     "flet-charts>=0.86.4",
+    "certifi",
+    "requests",
+    "beautifulsoup4",
+    "flet-qrscanner @ file:///C:/Users/olair/OneDrive/Software/flet_qrscanner",
 ]
 
 [dependency-groups]
@@ -21,9 +25,10 @@ dev = [
 
 [tool.flet]
 org = "com.olairlopes"
-product = "Cofre"
+product = "Fiel Finance"
 company = "Olair Lopes"
 copyright = "Copyright (C) 2026 by Olair Lopes"
+permissions = ["camera"]
 
 [tool.flet.app]
 path = "src"

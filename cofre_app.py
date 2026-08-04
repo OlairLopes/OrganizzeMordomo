@@ -1,5 +1,5 @@
 """
-Cofre — Controle Financeiro Pessoal
+Fiel Finance — Controle Financeiro Pessoal
 Versão em Python (Streamlit) do painel financeiro.
 
 Como rodar:
@@ -50,7 +50,7 @@ logger = logging.getLogger("cofre")
 # ---------------------------------------------------------------------------
 # Configuração da página e tema
 # ---------------------------------------------------------------------------
-st.set_page_config(page_title="Cofre — Controle Financeiro", page_icon="💰", layout="wide")
+st.set_page_config(page_title="Fiel Finance — Controle Financeiro", page_icon="💰", layout="wide")
 
 # A paleta de cores (C, CAT_COLORS, MONTHS_PT) vem de cofre_core.theme,
 # compartilhada com o app mobile (Flet).
@@ -224,7 +224,7 @@ def check_password():
                 f'''<div style="text-align:center; padding: 8px 0 4px;">
                     <div style="font-size:40px;">🔐</div>
                     <div class="cofre-title" style="font-size:30px; background: linear-gradient(135deg,{C["primary_bright"]},{C["gold"]});
-                        -webkit-background-clip:text; background-clip:text; color:transparent; margin-top:6px;">Cofre</div>
+                        -webkit-background-clip:text; background-clip:text; color:transparent; margin-top:6px;">Fiel Finance</div>
                     <div style="color:{C["muted"]}; font-size:14px; margin-top:2px;">Controle financeiro pessoal — acesso restrito</div>
                 </div>''',
                 unsafe_allow_html=True,
@@ -680,7 +680,7 @@ with st.sidebar:
         <div style="width:38px; height:38px; border-radius:11px; display:flex; align-items:center; justify-content:center;
             font-size:19px; background: linear-gradient(135deg, {C["primary_bright"]}, {C["primary"]}); box-shadow: 0 4px 14px -4px rgba(30,174,118,.6);">🔐</div>
         <div>
-            <div class="cofre-title" style="font-size:20px; line-height:1.1; color:{C["ink"]};">Cofre</div>
+            <div class="cofre-title" style="font-size:20px; line-height:1.1; color:{C["ink"]};">Fiel Finance</div>
             <div style="font-size:11px; color:{C["muted"]}; letter-spacing:.04em; text-transform:uppercase;">Controle financeiro</div>
         </div>
     </div>
@@ -966,7 +966,7 @@ elif tab == "Assistente":
 
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = [
-            {"role": "assistant", "content": "Oi! Sou o assistente do Cofre. Pergunte algo como \"quanto gastei com alimentação esse mês?\"."}
+            {"role": "assistant", "content": "Oi! Sou o assistente do Fiel Finance. Pergunte algo como \"quanto gastei com alimentação esse mês?\"."}
         ]
 
     for m in st.session_state.chat_messages:
@@ -1006,7 +1006,7 @@ elif tab == "Assistente":
                     *linhas,
                 ])
                 prompt = (
-                    "Você é o assistente financeiro do app \"Cofre\". Responda em português do Brasil, de forma "
+                    "Você é o assistente financeiro do app \"Fiel Finance\". Responda em português do Brasil, de forma "
                     "curta e direta, com base apenas nos dados abaixo. Nunca invente valores que não estejam nos "
                     "dados.\n\nDADOS FINANCEIROS DO USUÁRIO:\n" + contexto +
                     f"\n\nPERGUNTA DO USUÁRIO: \"{pergunta}\""

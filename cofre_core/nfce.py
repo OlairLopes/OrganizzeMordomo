@@ -41,7 +41,7 @@ def fetch_nfce_receipt(url):
 
     resp = requests.get(
         url, timeout=12,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; CofreApp/1.0)"},
+        headers={"User-Agent": "Mozilla/5.0 (compatible; FielFinanceApp/1.0)"},
     )
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")

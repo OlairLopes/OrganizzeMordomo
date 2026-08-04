@@ -1,4 +1,4 @@
-"""cofre_core — lógica de negócio pura do Cofre (sem dependência de UI),
+"""cofre_core — lógica de negócio pura do Fiel Finance (sem dependência de UI),
 compartilhada pelo app Streamlit (desktop/web) e pelo app Flet (mobile).
 
 Cada módulo cobre uma responsabilidade:
@@ -18,7 +18,19 @@ from .model import (
     migrate_legacy_colors,
     seed_data,
 )
-from .nfce import NFCE_URL_RE, extract_chave_acesso, fetch_nfce_receipt
+try:
+    from .nfce import NFCE_URL_RE, extract_chave_acesso, fetch_nfce_receipt
+except ImportError:
+    # requests/beautifulsoup4 são dependências opcionais, usadas só pela
+    # leitura de NFC-e; ambientes sem essas libs (ex.: app mobile antes da
+    # Fase 2) ainda devem conseguir importar cofre_core normalmente.
+    NFCE_URL_RE = None
+
+    def extract_chave_acesso(*args, **kwargs):
+        raise ImportError("extract_chave_acesso requer 'requests' e 'beautifulsoup4'")
+
+    def fetch_nfce_receipt(*args, **kwargs):
+        raise ImportError("fetch_nfce_receipt requer 'requests' e 'beautifulsoup4'")
 from .parse import (
     _to_float_br,
     decode_upload,

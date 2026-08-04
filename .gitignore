@@ -7,6 +7,11 @@ cofre_data.json.*.bak
 files.zip
 OrganizzeMordomo
 
+# Builds do app mobile (binários grandes, gerados via cofre_mobile/)
+*.apk
+*.aab
+*.ipa
+
 # Python
 __pycache__/
 *.pyc

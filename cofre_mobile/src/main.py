@@ -1,6 +1,8 @@
 import flet as ft
 
 from cofre_core import C
+from dialogs.import_dialog import open_import_dialog
+from dialogs.qrcode_dialog import open_qrcode_dialog
 from dialogs.tx_dialog import open_tx_dialog
 from screens.accounts import build_accounts
 from screens.categories import build_categories
@@ -18,7 +20,7 @@ TABS = [
 
 
 def main(page: ft.Page):
-    page.title = "Cofre"
+    page.title = "Fiel Finance"
     page.theme_mode = ft.ThemeMode.DARK
     page.theme = build_theme()
     page.dark_theme = build_theme()
@@ -55,19 +57,27 @@ def main(page: ft.Page):
     def new_transaction(e):
         open_tx_dialog(page, state, refresh)
 
+    def scan_qrcode(e):
+        open_qrcode_dialog(page, state, refresh)
+
+    def import_extrato(e):
+        open_import_dialog(page, state, refresh)
+
     def on_nav_change(e):
         selected["index"] = e.control.selected_index
         refresh()
 
     page.appbar = ft.AppBar(
-        title=ft.Text("Cofre", weight=ft.FontWeight.W_700),
+        title=ft.Text("FF", weight=ft.FontWeight.W_700),
         center_title=False,
         bgcolor=C["bg_soft"],
         actions=[
             ft.IconButton(icon=ft.Icons.CHEVRON_LEFT, on_click=prev_month),
             ft.Container(content=month_label_text, padding=ft.Padding.only(top=12)),
             ft.IconButton(icon=ft.Icons.CHEVRON_RIGHT, on_click=next_month),
-            ft.Container(width=8),
+            ft.IconButton(icon=ft.Icons.QR_CODE_SCANNER, tooltip="Ler QR code do cupom", on_click=scan_qrcode),
+            ft.IconButton(icon=ft.Icons.UPLOAD_FILE, tooltip="Importar extrato", on_click=import_extrato),
+            ft.Container(width=4),
         ],
     )
     page.floating_action_button = ft.FloatingActionButton(
